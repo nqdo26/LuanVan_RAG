@@ -23,7 +23,6 @@ class DestinationSearchResponse(BaseModel):
     destinations: List[DestinationResult]
     totalFound: int
 
-# Models for chat completion
 class ChatMessage(BaseModel):
     role: str
     content: str
