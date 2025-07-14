@@ -3,7 +3,7 @@ from typing import List, Optional
 
 # Models for travel destination search
 class DestinationSearchPayload(BaseModel):
-    cityId: str  # Thay đổi từ citySlug thành cityId
+    cityId: str  
     purpose: str
     limit: Optional[int] = 10
 
