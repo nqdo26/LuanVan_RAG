@@ -1,231 +1,279 @@
-# Travel Destination Search RAG System
+# RAG Server Python (Ongoing)
 
-Hệ thống tìm kiếm địa điểm du lịch thông minh sử dụng RAG (Retrieval-Augmented Generation) với Pinecone vector database và Groq LLM.
+A Retrieval Augmented Generation (RAG) server implementation using Python for enhanced question-answering capabilities and document processing.
 
-## 🚀 Tính năng chính
+## Overview
 
-### 1. Tìm kiếm địa điểm thông minh
-- **Input**: `citySlug` + `purpose` (ví dụ: "chụp ảnh")
-- **Process**: 
-  - Tìm city theo slug trong MongoDB
-  - Phân tích purpose thành tags bằng LLM
-  - Tìm kiếm semantic trong Pinecone
-  - Lọc kết quả theo city và ưu tiên tag matching
-- **Output**: Danh sách địa điểm phù hợp nhất
+This project implements a RAG system that combines document retrieval with language model generation to provide accurate, context-aware responses. It serves as the AI processing backend for the Study Assistant Platform.
 
-### 2. Ingest dữ liệu
-- Tự động chuyển đổi destinations từ MongoDB sang Pinecone
-- Tạo embeddings cho title, description, tags, services, activities
-- Hỗ trợ batch processing
+## Features
 
-### 3. Chat với context
-- Chat conversation với knowledge base
-- Context-aware responses
+-   🚀 Document processing and indexing
+-   📚 Vector database connection (Pinecone)
+-   🔍 Semantic search capabilities (Pinecone)
+-   🤖 LLM integration for response generation (Groq)
+-   📝 Document embedding and chunking
+-   🔄 API integration with main backend
+-   🎯 Question answering from documents
+-   📊 Text similarity search
 
-## 🛠️ Cài đặt
+## Tech Stack
 
-### 1. Cài đặt dependencies
+-   Python 3.8+
+-   FastAPI
+-   LangChain
+-   Uvicorn
+
+## Installation
+
+1. Clone repository
+
+```bash
+git clone https://github.com/lethinhhung/thesis_project_rag_server.git
+cd thesis_project_rag_server
+```
+
+2. Create and activate virtual environment
+
+```bash
+# Create virtual environment
+python -m venv venv
+
+# Activate virtual environment (Windows)
+.\venv\Scripts\activate
+```
+
+3. Install dependencies
+
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Cấu hình environment variables
-Tạo file `.env`:
+4. Create environment file
+   Create a `.env` file in the root directory and configure:
+
 ```env
-# Pinecone
 PINECONE_API_KEY=your_pinecone_api_key
-PINECONE_INDEX_NAME=travel-destinations
-
-# Groq
-GROQ_API_KEY=your_groq_api_key
-
-# MongoDB
-MONGODB_URI=mongodb://localhost:27017
-MONGODB_DB=travel_db
+PINECONE_INDEX_NAME=your_pinecone_index_name
+GROQ_API_KEY=your_grok_api_key
 ```
 
-### 3. Khởi chạy server
+5. Run the server
+
 ```bash
-uvicorn server:app --reload --host 0.0.0.0 --port 8000
+uvicorn server:app
 ```
 
-## 📡 API Endpoints
+## Project Structure
 
-### 1. Tìm kiếm địa điểm
+```
+RAG/
+├── server.py   # Main server
+```
+
+## API Documentation
+
+### Base URL
+
+```
+http://localhost:8000
+```
+
+### Endpoints
+
+#### 1. Health Check
+
 ```http
-POST /v1/search-destinations
-Content-Type: application/json
-
-{
-  "citySlug": "ho-chi-minh",
-  "purpose": "chụp ảnh",
-  "limit": 10
-}
+GET /
 ```
 
 **Response:**
+
 ```json
 {
-  "city": {
-    "name": "Hồ Chí Minh",
-    "slug": "ho-chi-minh",
-    "description": "..."
-  },
-  "purpose": "chụp ảnh",
-  "generatedTags": ["photography", "scenic", "landmark", "viewpoint"],
-  "destinations": [
-    {
-      "title": "Landmark 81",
-      "slug": "landmark-81",
-      "tags": ["landmark", "viewpoint", "photography"],
-      "location": {
-        "address": "Vinhomes Central Park",
-        "city": "Hồ Chí Minh"
-      },
-      "details": {
-        "description": "...",
-        "highlight": ["..."],
-        "services": ["..."],
-        "activities": ["..."],
-        "fee": ["..."]
-      },
-      "album": {
-        "highlight": ["..."],
-        "space": ["..."],
-        "fnb": ["..."],
-        "extra": ["..."]
-      },
-      "score": 0.95
-    }
-  ],
-  "totalFound": 10
+    "message": "Hello World!"
 }
 ```
 
-### 2. Ingest destinations
-```http
-POST /v1/ingest-destinations
-```
+#### 2. Keep Alive Health Check
 
-### 3. Chat completion
-```http
-POST /v1/chat/completions
-Content-Type: application/json
-
-{
-  "messages": [
-    {"role": "user", "content": "Tôi muốn tìm địa điểm chụp ảnh ở Hà Nội"}
-  ],
-  "userId": "test_user",
-  "isUseKnowledge": true
-}
-```
-
-### 4. Health check
 ```http
 HEAD /v1/keep-alive
 ```
 
-## 🔧 Cấu trúc dữ liệu
+**Response:**
 
-### MongoDB Collections
-
-#### Cities
-```javascript
+```json
 {
-  _id: ObjectId,
-  name: String,
-  slug: String,
-  description: String,
-  type: [ObjectId], // cityType references
-  views: Number,
-  images: [String],
-  weather: [{
-    title: String,
-    minTemp: Number,
-    maxTemp: Number,
-    note: String
-  }],
-  info: [{
-    title: String,
-    description: String
-  }]
+    "status": "healthy"
 }
 ```
 
-#### Destinations
-```javascript
+#### 3. Document Ingestion
+
+```http
+POST /v1/ingest
+```
+
+**Description:** Processes and indexes documents into the vector database for retrieval.
+
+**Request Body:**
+
+```json
 {
-  _id: ObjectId,
-  title: String,
-  slug: String,
-  type: String,
-  tags: [ObjectId], // tag references
-  location: {
-    address: String,
-    city: ObjectId // city reference
-  },
-  album: {
-    highlight: [String],
-    space: [String],
-    fnb: [String],
-    extra: [String]
-  },
-  details: {
-    description: String,
-    highlight: [String],
-    services: [String],
-    activities: [String],
-    fee: [String]
-  }
+    "documentId": "string",
+    "userId": "string",
+    "document": "string",
+    "title": "string",
+    "courseId": "string (optional)",
+    "courseTitle": "string (optional)"
 }
 ```
 
-### Pinecone Vector Structure
-```javascript
+**Response:**
+
+```json
 {
-  id: "dest-{destinationId}",
-  text: "combined content for embedding",
-  destinationId: "string",
-  title: "destination title",
-  cityId: "string",
-  tags: ["tag1", "tag2"]
+    "status": "done",
+    "chunks_processed": 15
 }
 ```
 
-## 🎯 Workflow
+#### 4. Question Answering
 
-1. **Ingest Phase**: Chuyển đổi destinations từ MongoDB sang Pinecone
-2. **Search Phase**: 
-   - User gửi citySlug + purpose
-   - Tìm city trong MongoDB
-   - LLM phân tích purpose thành tags
-   - Search semantic trong Pinecone
-   - Filter theo city và tag matching
-   - Trả về kết quả được sắp xếp theo relevance
-
-## 🔍 Tối ưu hóa
-
-- **Tag Matching**: Bonus score cho destinations có tags trùng khớp
-- **City Filtering**: Chỉ trả về destinations trong city được chọn
-- **Semantic Search**: Tìm kiếm dựa trên nội dung, không chỉ keywords
-- **Batch Processing**: Xử lý hiệu quả với large datasets
-
-## 🚀 Deployment
-
-### Docker
-```dockerfile
-FROM python:3.9-slim
-
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-
-COPY . .
-EXPOSE 8000
-
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
+```http
+POST /v1/question
 ```
 
-### Environment Variables
-Đảm bảo cấu hình đầy đủ các API keys và database connections trước khi deploy.
+**Description:** Answers questions using RAG (Retrieval Augmented Generation) based on indexed documents.
+
+**Request Body:**
+
+```json
+{
+    "userId": "string",
+    "query": "string"
+}
+```
+
+**Response:**
+
+```json
+{
+    "id": "string",
+    "object": "chat.completion",
+    "created": 1234567890,
+    "model": "deepseek-r1-distill-llama-70b",
+    "choices": [
+        {
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": "string",
+                "documents": [
+                    {
+                        "id": "string",
+                        "text": "string",
+                        "documentId": "string",
+                        "score": 0.95
+                    }
+                ]
+            },
+            "finish_reason": "stop"
+        }
+    ]
+}
+```
+
+#### 5. Delete Document
+
+```http
+POST /v1/delete-document
+```
+
+**Description:** Removes all vectors associated with a specific document from the vector database.
+
+**Request Body:**
+
+```json
+{
+    "documentId": "string",
+    "userId": "string"
+}
+```
+
+**Response:**
+
+```json
+{
+    "deleted_ids": ["doc-1-0", "doc-1-1", "doc-1-2"]
+}
+```
+
+#### 6. Chat Completions
+
+```http
+POST /v1/chat/completions
+```
+
+**Description:** Provides chat completions with optional knowledge base integration.
+
+**Request Body:**
+
+```json
+{
+    "messages": [
+        {
+            "role": "user|assistant|system",
+            "content": "string"
+        }
+    ],
+    "model": "string (optional, default: deepseek-r1-distill-llama-70b)",
+    "userId": "string",
+    "isUseKnowledge": "boolean (optional, default: false)",
+    "courseId": "string (optional)",
+    "courseTitle": "string (optional)"
+}
+```
+
+**Response:**
+
+-   When `isUseKnowledge: false`: Standard chat completion response
+-   When `isUseKnowledge: true`: Chat completion with document references in the `documents` field
+
+#### 7. Streaming Chat Completions (Under development)
+
+```http
+POST /v1/chat/streaming-completions
+```
+
+**Description:** Similar to chat completions but with streaming response support.
+
+**Request/Response:** Same format as `/v1/chat/completions`
+
+### Error Responses
+
+**404 Not Found:**
+
+```json
+{
+    "detail": "Không tìm thấy vectors nào với documentId này."
+}
+```
+
+**500 Internal Server Error:**
+
+```json
+{
+    "detail": "Error message details"
+}
+```
+
+### Features
+
+-   📝 **Document Processing**: Automatic text cleaning and chunking
+-   🔍 **Semantic Search**: Vector-based similarity search using Pinecone
+-   🤖 **AI Integration**: Powered by Groq's LLM for response generation
+-   📚 **Knowledge Base**: RAG implementation for context-aware responses
+-   🎯 **Course Filtering**: Ability to filter search results by course
+-   📊 **Document References**: Responses include source document information
