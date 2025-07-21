@@ -163,7 +163,7 @@ def delete_document(payload: DeletePayload):
 @app.post("/v1/chat/completions")
 def create_chat_completion(payload: ChatCompletionPayload):
 
-    notice = "🔼 Nhớ chọn điểm đến phía trên trước khi hỏi để Gobot gợi ý đúng chuẩn nha!"
+    notice = "👆 Nhớ chọn điểm đến phía trên trước khi hỏi để Gobot gợi ý chính xác từ hệ thống nheee!"
     if not payload.isUseKnowledge or not payload.cityId:
         try:
             messages_for_api = [message.model_dump() for message in payload.messages]
@@ -177,7 +177,7 @@ def create_chat_completion(payload: ChatCompletionPayload):
                             "🌏 Xin chào!\n"
                             "Bạn hỏi: " + (last_message['content'] if last_message else "") + "\n\n"
                             "🤖 Dưới đây là câu trả lời dựa trên kiến thức nền của hệ thống.\n"
-                            "Nếu bạn muốn nhận gợi ý chính xác hơn, hãy chọn thành phố trước nhé! 🏙️\n\n"
+                            "Nếu bạn muốn nhận gợi ý từ hệ thống chính xác hơn, hãy chọn điểm đến trước nhé! 👆\n\n"
                             "---\n"
                             "### Trả lời:"
                         )
