@@ -247,7 +247,7 @@ def create_chat_completion(payload: ChatCompletionPayload):
                         "✏️ **Hướng dẫn trình bày câu trả lời:**\n"
                         "- Viết bằng cú pháp [Markdown] để hệ thống có thể hiển thị đẹp.\n"
                         "- Đưa ra **gợi ý cụ thể, ngắn gọn và rõ ràng**.\n"
-                        "- Nếu có thể, hãy liệt kê các lựa chọn bằng **danh sách hoặc bảng Markdown**.\n"
+                        "- Nếu có thể, hãy liệt kê các lựa chọn bằng **danh sách hoặc bảng Markdown**, nếu có câu trả lời tiếp theo, chỉ liệt kê thêm các địa điểm mới.\n"
                         "- Thêm emoji để tạo cảm giác thân thiện và trực quan 🏝️🏔️🌇.\n"
                         "- Nếu thông tin không có trong dữ liệu, hãy dựa vào kiến thức nền, và mở đầu bằng: `⚠️ Gợi ý dựa trên kiến thức nền:`\n"
                     )
