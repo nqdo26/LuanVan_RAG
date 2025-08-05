@@ -1,10 +1,22 @@
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
+
+class DestinationDetails(BaseModel):
+    description: Optional[str] = None
+    highlight: Optional[str] = None
+    services: Optional[str] = None
+    cultureType: Optional[str] = None
+    activities: Optional[str] = None
+    fee: Optional[str] = None
+    usefulInfo: Optional[str] = None
+    tags: Optional[str] = None  # Thêm tags field
+    openHour: Optional[str] = None
+    contactInfo: Optional[str] = None
 
 class IngestPayload(BaseModel):
     destinationId: str
     cityId: str
-    info: str
+    info: str  
     slug: str
     name: str
 
@@ -23,6 +35,6 @@ class ChatMessage(BaseModel):
 
 class ChatCompletionPayload(BaseModel):
     messages: List[ChatMessage]
-    model: Optional[str] = "deepseek-r1-distill-llama-70b"  
+    model: Optional[str] = "llama-3.3-70b-versatile"  # Thay đổi model mặc định
     cityId: Optional[str] = None
     isUseKnowledge: Optional[bool] = True
