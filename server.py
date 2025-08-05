@@ -164,14 +164,17 @@ def delete_document(payload: DeletePayload):
 def create_chat_completion(payload: ChatCompletionPayload):
     """
     Tạo chat completion cho Gobot
+    - Bạn là Gobot - trợ lý du lịch AI thông minh của Việt Nam.
+    - Chỉ trả lời các địa điểm du lịch ở Việt Nam.
     - Nếu không dùng knowledge hoặc không có cityId -> trả lời dựa trên kiến thức nền
-    - Nếu có knowledge -> tìm kiếm Pinecone theo intent, AI trả lời, link địa điểm được ghép xuống cuối
+    - Nếu có knowledge -> tìm kiếm Pinecone, AI trả lời, link địa điểm được ghép xuống cuối
+
     """
     notice = "👆 Nhớ chọn điểm đến phía trên trước khi hỏi để Gobot gợi ý chính xác từ hệ thống nheee!"
 
-    # ==================================================
+    # -----------------------
     # 1️⃣ Trường hợp không dùng knowledge
-    # ==================================================
+    # -----------------------
     if not payload.isUseKnowledge or not payload.cityId:
         try:
             messages_for_api = [msg.model_dump() for msg in payload.messages]
@@ -185,93 +188,100 @@ def create_chat_completion(payload: ChatCompletionPayload):
                 "---\n### Trả lời:"
             )
 
-            chat_completion = client.chat.completions.create(
-                messages=messages_for_api[:-1] + [{"role": "user", "content": system_prompt}],
-                model=payload.model or "deepseek-r1-distill-llama-70b",
-                temperature=0.3,
-                top_p=0.9,
-                max_completion_tokens=1024,
-            )
-
-            response_dict = chat_completion.model_dump()
-            # Ghép notice vào đầu câu trả lời
+            # Model fallback strategy
+            primary_model = payload.model or "deepseek-r1-distill-llama-70b"
+            fallback_models = [primary_model, "llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+            
+            response_dict = None
+            for attempt, current_model in enumerate(fallback_models):
+                try:
+                    print(f"[NO-KNOWLEDGE ATTEMPT {attempt + 1}] Trying model: {current_model}")
+                    chat_completion = client.chat.completions.create(
+                        messages=messages_for_api[:-1] + [{"role": "user", "content": system_prompt}],
+                        model=current_model,
+                        temperature=0.3,
+                        top_p=0.9,
+                        max_completion_tokens=1024,
+                    )
+                    response_dict = chat_completion.model_dump()
+                    print(f"[NO-KNOWLEDGE SUCCESS] Model {current_model} worked!")
+                    break
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    if any(keyword in error_msg for keyword in ['quota', 'rate limit', 'token']) and attempt < len(fallback_models) - 1:
+                        print(f"[NO-KNOWLEDGE FALLBACK] {current_model} failed, trying next...")
+                        continue
+                    elif attempt == len(fallback_models) - 1:
+                        raise e
+            
+            if response_dict is None:
+                raise HTTPException(status_code=500, detail="All fallback models failed")
+            
+            # Loại bỏ phần thinking của deepseek model
             if response_dict.get("choices") and response_dict["choices"][0].get("message"):
                 content = response_dict["choices"][0]["message"].get("content", "")
-                response_dict["choices"][0]["message"]["content"] = notice + "\n\n" + (content or "").strip()
+                # Loại bỏ phần thinking
+                import re
+                content = re.sub(r'<thinking>.*?</thinking>', '', content, flags=re.DOTALL)
+                content = re.sub(r'^.*?(?=(?:Xin chào|Chào bạn|Dưới đây|⚠️|Mình|Tôi|Bạn))', '', content, flags=re.DOTALL)
+                content = re.sub(r'Alright.*?(?=\n\n|\n[A-Z])', '', content, flags=re.DOTALL)
+                content = re.sub(r'First.*?(?=\n\n|\n[A-Z])', '', content, flags=re.DOTALL)
+                content = re.sub(r'I need.*?(?=\n\n|\n[A-Z])', '', content, flags=re.DOTALL)
+                content = re.sub(r'The user.*?(?=\n\n|\n[A-Z])', '', content, flags=re.DOTALL)
+                content = re.sub(r'\n\s*\n\s*\n', '\n\n', content)
+                content = content.strip()
+                
+                # Ghép notice vào đầu câu trả lời
+                response_dict["choices"][0]["message"]["content"] = notice + "\n\n" + content
             return response_dict
 
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error during chat completion: {str(e)}")
 
-    # ==================================================
+    # -----------------------
     # 2️⃣ Trường hợp dùng knowledge
-    # ==================================================
+    # -----------------------
     messages_for_api = [msg.model_dump() for msg in payload.messages]
 
     # Làm sạch câu hỏi để search Pinecone
-    combined_question = " ".join([msg.content for msg in payload.messages if msg.role == "user"])
+    combined_question = " ".join(
+        [msg.content for msg in payload.messages if msg.role == "user"]
+    )
     combined_question = clean_text(combined_question)
 
+    # Tìm kiếm nhiều kết quả để AI có context đầy đủ
     results = index.search(
         namespace=payload.cityId,
-        query={"top_k": 20, "inputs": {"text": combined_question}},
+        query={"top_k": 10, "inputs": {"text": combined_question}},
     )
     hits = results.get("result", {}).get("hits", [])
 
-    # ==================================================
-    # 3️⃣ Xác định intent
-    # ==================================================
+    # Lọc theo loại hình nếu câu hỏi liên quan đến cà phê
     user_question = payload.messages[-1].content.lower()
-    intent_keywords = {
-        "quán ăn": ["quán ăn", "ăn uống", "món ăn", "ẩm thực địa phương"],
-        "nhà hàng": ["nhà hàng", "restaurant", "ăn uống"],
-        "quán cà phê": ["cà phê", "coffee", "quán cafe", "quán cà phê"],
-        "bảo tàng": ["bảo tàng", "museum", "trưng bày"],
-        "khu vui chơi": ["khu vui chơi", "công viên giải trí", "vui chơi", "giải trí"],
-    }
-
-    detected_intent = None
-    for intent, keywords in intent_keywords.items():
-        if any(kw in user_question for kw in keywords):
-            detected_intent = intent
-            break
-
-    # ==================================================
-    # 4️⃣ Lọc hits theo intent
-    # ==================================================
-    if detected_intent:
+    cafe_keywords = ["cà phê", "coffee", "quán cafe", "quán cà phê", "quán cà phê 24h", "cafe"]
+    if any(kw in user_question for kw in cafe_keywords):
         filtered_hits = []
         for hit in hits:
+            # Nếu dữ liệu có trường 'type' hoặc 'category', lọc theo đó
             type_val = (hit["fields"].get("type") or hit["fields"].get("category") or "").lower()
             name_val = (hit["fields"].get("name") or "").lower()
-
-            if detected_intent == "quán ăn":
-                if "food" in type_val or "ăn" in type_val or "ẩm thực" in type_val or "quán ăn" in name_val:
-                    filtered_hits.append(hit)
-
-            elif detected_intent == "quán cà phê":
-                if any(k in type_val for k in ["cafe", "coffee", "cà phê"]) \
-                   or any(k in name_val for k in ["cà phê", "cafe", "coffee"]):
-                    filtered_hits.append(hit)
-
-            elif detected_intent == "bảo tàng":
-                if "museum" in type_val or "bảo tàng" in type_val or "museum" in name_val or "bảo tàng" in name_val:
-                    filtered_hits.append(hit)
-
-            elif detected_intent == "khu vui chơi":
-                if any(k in type_val for k in ["park", "amusement", "vui chơi", "giải trí"]) \
-                   or any(k in name_val for k in ["khu vui chơi", "công viên", "giải trí"]):
-                    filtered_hits.append(hit)
-
+            # Ưu tiên type/category là cafe, hoặc tên có chứa từ cafe/cà phê
+            if "cafe" in type_val or "cà phê" in type_val or "coffee" in type_val or "cafe" in name_val or "cà phê" in name_val or "coffee" in name_val:
+                filtered_hits.append(hit)
+        # Nếu có kết quả lọc, dùng kết quả này, nếu không thì fallback về hits ban đầu
         if filtered_hits:
             hits = filtered_hits
 
     if not hits:
-        return {"choices": [{"message": {"content": notice + "\n\n⚠️ Không tìm thấy dữ liệu phù hợp."}}]}
+        return {
+            "choices": [
+                {"message": {"content": notice + "\n\n⚠️ Không tìm thấy dữ liệu phù hợp."}}
+            ]
+        }
 
-    # ==================================================
-    # 5️⃣ Chuẩn bị danh sách link gọn gàng
-    # ==================================================
+    # -----------------------
+    # 3️⃣ Chuẩn bị danh sách link gọn gàng
+    # -----------------------
     MAX_LINKS = 5
     seen = set()
     link_lines = []
@@ -288,77 +298,151 @@ def create_chat_completion(payload: ChatCompletionPayload):
         if len(link_lines) >= MAX_LINKS:
             break
 
-    # ==================================================
-    # 6️⃣ Chuẩn bị prompt cho AI
-    # ==================================================
-    reference_texts = "\n---\n".join([hit["fields"]["text"] for hit in hits])
+    # -----------------------
+    # 4️⃣ Chuẩn bị prompt cho AI
+    # -----------------------
+    reference_texts = "\n---\n".join(
+        [hit["fields"]["text"] for hit in hits]
+    )
+
     prompt = (
-        f"👋 **Xin chào, mình là Gobot - trợ lý du lịch thông minh của bạn!**\n\n"
-        f"Mình sẽ giúp bạn tìm các địa điểm thuộc loại **{detected_intent or 'du lịch/ăn uống'}** hấp dẫn nhất dựa trên dữ liệu hệ thống.\n\n"
-        f"### ❓ Câu hỏi từ người dùng:\n{payload.messages[-1].content}\n\n"
-        "---\n"
-        "📚 **Thông tin tham khảo từ hệ thống:**\n"
-        f"{reference_texts}\n"
-        "---\n"
-        "✏️ **Hướng dẫn trả lời:**\n"
-        "- Chỉ gợi ý các địa điểm đúng loại yêu cầu, dựa trên dữ liệu hệ thống.\n"
-        "- Viết câu trả lời thân thiện, tự nhiên, như một người bạn địa phương đang tư vấn.\n"
-        "- Kiểm tra kỹ thời gian mở cửa của địa điểm trước khi trả lời, xem địa điểm có mở cửa vào thời điểm người dùng hỏi không.\n"
-        "- Không tự chế tên địa điểm nếu không có trong dữ liệu.\n"
-        "- Không chèn link trong nội dung, link sẽ hiển thị riêng ở cuối.\n"
-        "- Nếu không đủ dữ liệu, mở đầu bằng: `⚠️ Gợi ý dựa trên kiến thức nền:`\n"
-        "- Kết thúc bằng lời chúc du lịch vui vẻ.\n\n"
+        "Bạn là Gobot - trợ lý du lịch AI thông minh của Việt Nam. "
+        "Hãy trả lời câu hỏi dựa trên thông tin được cung cấp bên dưới.\n\n"
+        
+        f"🔍 **Câu hỏi:** {payload.messages[-1].content}\n\n"
+        
+        "� **Thông tin từ cơ sở dữ liệu:**\n"
+        f"{reference_texts}\n\n"
+        
+        "📝 **Yêu cầu trả lời:**\n"
+        "• Trả lời hoàn toàn bằng tiếng Việt, tự nhiên và thân thiện\n"
+        "• Dựa vào thông tin trên, đưa ra gợi ý cụ thể và hữu ích\n"
+        "- Câu trả lời phải tập trung vào các địa điểm du lịch, phần suy nghĩ của bạn không quá dài để tránh trường hợp lan mang"
+        "• Mô tả chi tiết về từng địa điểm: địa chỉ, giá cả, đặc điểm nổi bật\n"
+        "• Sắp xếp theo thứ tự ưu tiên (gợi ý tốt nhất trước)\n"
+        "• Thêm emoji phù hợp: �️🏔️🍜☕🎯📍\n"
+        "• Kết thúc bằng lời khuyên hoặc mẹo du lịch thực tế\n"
+        "• KHÔNG tự thêm link vào nội dung\n\n"
+        
+        "⚠️ **Lưu ý:** Nếu thông tin không đủ chi tiết, hãy bắt đầu câu trả lời bằng: "
+        "'⚠️ Dựa trên dữ liệu hiện có, đây là những gợi ý tốt nhất:'\n\n"
+        
+        "💬 **Bắt đầu trả lời:**"
     )
 
-    # ==================================================
-    # 7️⃣ Gọi model
-    # ==================================================
-    chat_completion = client.chat.completions.create(
-        messages=messages_for_api + [{"role": "user", "content": prompt}],
-        model=payload.model or "deepseek-r1-distill-llama-70b",
-        temperature=0.5,
-        top_p=0.8,
-        max_completion_tokens=600,
-    )
-    response_dict = chat_completion.model_dump()
 
-    # ==================================================
-    # 8️⃣ Ghép link vào cuối câu trả lời (chỉ 1 lần)
-    # ==================================================
+    # -----------------------
+    # 5️⃣ Gọi model với fallback strategy
+    # -----------------------
+    model_used = payload.model or "deepseek-r1-distill-llama-70b"
+    print(f"[GROQ MODEL] Using model: {model_used}")
+    
+    # Danh sách fallback models
+    fallback_models = [
+        model_used,
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "mixtral-8x7b-32768"
+    ]
+    
+    response_dict = None
+    last_error = None
+    
+    for attempt, current_model in enumerate(fallback_models):
+        try:
+            print(f"[ATTEMPT {attempt + 1}] Trying model: {current_model}")
+            chat_completion = client.chat.completions.create(
+                messages=messages_for_api + [{"role": "user", "content": prompt}],
+                model=current_model,
+                temperature=0.3,
+                top_p=0.9,
+                max_completion_tokens=1024,
+            )
+            response_dict = chat_completion.model_dump()
+            print(f"[SUCCESS] Model {current_model} worked!")
+            break
+            
+        except Exception as e:
+            last_error = e
+            error_msg = str(e).lower()
+            print(f"[ERROR] Model {current_model} failed: {str(e)}")
+            
+            # Kiểm tra các lỗi liên quan đến token/quota
+            if any(keyword in error_msg for keyword in ['quota', 'rate limit', 'token', 'limit exceeded', '429']):
+                print(f"[FALLBACK] Token/quota issue with {current_model}, trying next model...")
+                continue
+            else:
+                # Lỗi khác, có thể thử model khác hoặc raise
+                if attempt < len(fallback_models) - 1:
+                    print(f"[FALLBACK] Other error with {current_model}, trying next model...")
+                    continue
+                else:
+                    raise e
+    
+    if response_dict is None:
+        raise HTTPException(status_code=500, detail=f"All models failed. Last error: {str(last_error)}")
+
+    # Loại bỏ phần thinking của deepseek model
     if response_dict.get("choices") and response_dict["choices"][-1].get("message"):
         content = response_dict["choices"][-1]["message"].get("content", "")
+        # Loại bỏ phần thinking (thường bắt đầu với các pattern này)
         import re
-        # Xóa section link cũ nếu AI tự thêm
-        content = re.sub(
-            r"\n+---\n\*\*🔗 Đường dẫn tới các địa điểm được gợi ý:\*\*[\s\S]*$",
-            "",
-            content,
-            flags=re.MULTILINE,
-        )
+        # Pattern 1: Loại bỏ text trong <thinking>...</thinking>
+        content = re.sub(r'<thinking>.*?</thinking>', '', content, flags=re.DOTALL)
+        # Pattern 2: Loại bỏ phần thinking ở đầu (thường là tiếng Anh)
+        content = re.sub(r'^.*?(?=(?:Xin chào|Chào bạn|Dưới đây|⚠️|Mình|Tôi|Bạn))', '', content, flags=re.DOTALL)
+        # Pattern 3: Loại bỏ các đoạn thinking khác
+        content = re.sub(r'Alright.*?(?=\n\n|\n[A-Z])', '', content, flags=re.DOTALL)
+        content = re.sub(r'First.*?(?=\n\n|\n[A-Z])', '', content, flags=re.DOTALL)
+        content = re.sub(r'I need.*?(?=\n\n|\n[A-Z])', '', content, flags=re.DOTALL)
+        content = re.sub(r'The user.*?(?=\n\n|\n[A-Z])', '', content, flags=re.DOTALL)
+        # Clean up extra whitespace
+        content = re.sub(r'\n\s*\n\s*\n', '\n\n', content)
+        content = content.strip()
+        response_dict["choices"][-1]["message"]["content"] = content
 
-        # Ưu tiên link khớp với tên xuất hiện trong câu trả lời
-        filtered_links = []
-        lower_content = content.lower()
-        seen_links = set()
+    # -----------------------
+    # 6️⃣ Ghép link thông minh vào cuối câu trả lời
+    # -----------------------
+    if response_dict.get("choices") and response_dict["choices"][-1].get("message"):
+        content = response_dict["choices"][-1]["message"].get("content", "")
+        
+        # Tạo danh sách địa điểm được đề cập
+        mentioned_places = []
+        seen_destinations = set()
+        
         for hit in hits:
-            name = (hit["fields"].get("name") or f"Địa điểm {hit['fields'].get('destinationId')}").lower()
-            slug = str(hit["fields"].get("slug") or "").lower()
-            unique_key = slug or name
-            if (name in lower_content or slug in lower_content) and unique_key not in seen_links:
-                url = f"http://localhost:3000/destination/{slug or hit['fields'].get('destinationId')}"
-                filtered_links.append(
-                    f"- [{hit['fields'].get('name') or f'Địa điểm {hit['fields'].get('destinationId')}'}]({url})"
-                )
-                seen_links.add(unique_key)
+            dest_name = hit["fields"].get("name", "")
+            dest_slug = hit["fields"].get("slug", "")
+            dest_id = hit["fields"].get("destinationId", "")
+            
+            # Kiểm tra xem địa điểm có được nhắc đến trong câu trả lời không
+            name_in_content = dest_name.lower() in content.lower() if dest_name else False
+            slug_in_content = dest_slug.lower() in content.lower() if dest_slug else False
+            
+            if (name_in_content or slug_in_content) and dest_id not in seen_destinations:
+                seen_destinations.add(dest_id)
+                link_slug = dest_slug if dest_slug else dest_id
+                place_name = dest_name if dest_name else f"Địa điểm {dest_id}"
+                url = f"http://localhost:3000/destination/{link_slug}"
+                mentioned_places.append(f"🔗 [{place_name}]({url})")
+        
+        # Nếu không có địa điểm nào được nhắc đến cụ thể, lấy top 3 kết quả tốt nhất
+        if not mentioned_places:
+            for i, hit in enumerate(hits[:3]):
+                dest_name = hit["fields"].get("name", f"Địa điểm {hit['fields'].get('destinationId', '')}")
+                dest_slug = hit["fields"].get("slug", hit["fields"].get("destinationId", ""))
+                url = f"http://localhost:3000/destination/{dest_slug}"
+                mentioned_places.append(f"🔗 [{dest_name}]({url})")
+        
+        # Thêm section đường dẫn nếu có
+        if mentioned_places:
+            links_section = f"\n\n---\n**� Khám phá chi tiết:**\n" + "\n".join(mentioned_places)
+            response_dict["choices"][-1]["message"]["content"] = content + links_section
 
-        final_links = filtered_links or link_lines
-        if final_links:
-            section = "\n\n---\n**🔗 Đường dẫn tới các địa điểm được gợi ý:**\n" + "\n".join(final_links)
-            response_dict["choices"][-1]["message"]["content"] = content.rstrip() + section
-
-    # ==================================================
-    # 9️⃣ Gắn danh sách địa điểm vào JSON trả về
-    # ==================================================
+    # -----------------------
+    # 7️⃣ Gắn danh sách địa điểm vào JSON trả về
+    # -----------------------
     response_dict["choices"][-1]["message"]["destinations"] = [
         {
             "id": hit["_id"],
@@ -372,9 +456,7 @@ def create_chat_completion(payload: ChatCompletionPayload):
 
     return response_dict
 
-
-
-# clean_text
+# Đưa hàm clean_text ra ngoài
 def clean_text(text: str) -> str:
     # 1. Chuyển về chữ thường
     # text = text.lower()

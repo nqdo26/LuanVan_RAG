@@ -23,6 +23,6 @@ class ChatMessage(BaseModel):
 
 class ChatCompletionPayload(BaseModel):
     messages: List[ChatMessage]
-    model: Optional[str] = "llama-3.3-70b-versatile"
+    model: Optional[str] = "deepseek-r1-distill-llama-70b"  
     cityId: Optional[str] = None
     isUseKnowledge: Optional[bool] = True
