@@ -1,4 +1,6 @@
 from fastapi import FastAPI, Request, HTTPException
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import requests
 from pinecone import Pinecone, ServerlessSpec
@@ -9,11 +11,21 @@ import unicodedata
 import os
 from dotenv import load_dotenv
 
-from models import IngestPayload, QuestionPayload, DeletePayload, ChatCompletionPayload
+from models import IngestPayload, QuestionPayload, DeletePayload, ChatCompletionPayload, UpdatePayload
 
 # Load environment variables
 load_dotenv()
 app = FastAPI()
+
+# Thêm exception handler cho validation errors
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    print(f"[VALIDATION ERROR] {exc.errors()}")
+    print(f"[REQUEST BODY] {await request.body()}")
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors(), "body": str(await request.body())}
+    )
 
 # Pinecone init
 pc = Pinecone(
@@ -104,6 +116,97 @@ def ingest(payload: IngestPayload):
             index.upsert_records(payload.cityId, batch)
 
         return {"status": "done", "chunks_processed": len(records)}
+
+@app.post("/v1/update")
+def update_destination(payload: UpdatePayload):
+    """
+    Cập nhật destination trên Pinecone - xóa chunks cũ và tạo chunks mới
+    Xử lý cả trường hợp thay đổi namespace (cityId)
+    """
+    try:
+
+        
+        # Bước 1: Tìm và xóa các chunks cũ từ TẤT CẢ namespaces
+        # Vì có thể cityId đã thay đổi, ta cần tìm trong tất cả namespaces
+        deleted_count = 0
+        
+        # Lấy danh sách tất cả namespaces
+        try:
+            stats = index.describe_index_stats()
+            all_namespaces = list(stats.get('namespaces', {}).keys())
+            print(f"[UPDATE] Searching in namespaces: {all_namespaces}")
+            
+            # Tìm và xóa chunks cũ trong tất cả namespaces
+            for namespace in all_namespaces:
+                try:
+                    ids_to_delete = list(index.list(prefix=payload.destinationId, namespace=namespace))
+                    if ids_to_delete:
+                        index.delete(namespace=namespace, ids=ids_to_delete)
+                        deleted_count += len(ids_to_delete)
+                        print(f"[UPDATE] Deleted {len(ids_to_delete)} chunks from namespace {namespace}")
+                except Exception as ns_error:
+                    print(f"[UPDATE] Error checking namespace {namespace}: {ns_error}")
+                    continue
+                    
+        except Exception as stats_error:
+            print(f"[UPDATE] Could not get index stats, trying current namespace only: {stats_error}")
+            # Fallback: chỉ xóa từ namespace hiện tại
+            try:
+                ids_to_delete = list(index.list(prefix=payload.destinationId, namespace=payload.cityId))
+                if ids_to_delete:
+                    index.delete(namespace=payload.cityId, ids=ids_to_delete)
+                    deleted_count = len(ids_to_delete)
+                    print(f"[UPDATE] Deleted {deleted_count} chunks from current namespace {payload.cityId}")
+            except Exception as fallback_error:
+                print(f"[UPDATE] Fallback delete also failed: {fallback_error}")
+        
+        # Bước 2: Parse JSON data từ backend (giống như ingest)
+        import json
+        try:
+            destination_data = json.loads(payload.info)
+            print(f"[UPDATE] Parsed destination data keys: {list(destination_data.keys())}")
+        except Exception as parse_error:
+            print(f"[UPDATE ERROR] JSON parse failed: {parse_error}")
+            # Fallback nếu vẫn là string cũ
+            destination_data = {"description": payload.info}
+        
+        # Bước 3: Tạo semantic chunks mới với 4 chunks
+        chunks = create_semantic_chunks(payload.name, destination_data, payload.destinationId, payload.slug)
+        print(f"[UPDATE] Created {len(chunks)} chunks")
+
+        # Bước 4: Tạo records mới với metadata đầy đủ
+        records = [
+            {
+                "id": f"{payload.destinationId}-{chunk['type']}",
+                "text": chunk['content'],
+                'destinationId': payload.destinationId,
+                'slug': payload.slug,
+                'name': payload.name,
+                'chunk_type': chunk['type'],
+                'chunk_index': i,
+                'total_chunks': len(chunks)
+            } for i, chunk in enumerate(chunks)
+        ]
+
+        # Bước 5: Upsert records mới vào namespace mới (cityId từ payload)
+        batch_size = 90
+        
+        for i in range(0, len(records), batch_size):
+            batch = records[i:i + batch_size]
+            index.upsert_records(payload.cityId, batch)
+
+        print(f"[UPDATE] Created {len(records)} new chunks for destination {payload.destinationId} in namespace {payload.cityId}")
+        
+        return {
+            "status": "updated", 
+            "chunks_deleted": deleted_count,
+            "chunks_created": len(records),
+            "new_namespace": payload.cityId
+        }
+        
+    except Exception as e:
+        print(f"[UPDATE ERROR] {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Update failed: {str(e)}")
 
 @app.post("/v1/question")
 def question(payload: QuestionPayload):

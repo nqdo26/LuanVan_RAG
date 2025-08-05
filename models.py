@@ -9,11 +9,18 @@ class DestinationDetails(BaseModel):
     activities: Optional[str] = None
     fee: Optional[str] = None
     usefulInfo: Optional[str] = None
-    tags: Optional[str] = None  # Thêm tags field
+    tags: Optional[str] = None  
     openHour: Optional[str] = None
     contactInfo: Optional[str] = None
 
 class IngestPayload(BaseModel):
+    destinationId: str
+    cityId: str
+    info: str  
+    slug: str
+    name: str
+
+class UpdatePayload(BaseModel):
     destinationId: str
     cityId: str
     info: str  
