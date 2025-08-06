@@ -119,10 +119,6 @@ def ingest(payload: IngestPayload):
 
 @app.post("/v1/update")
 def update_destination(payload: UpdatePayload):
-    """
-    Cập nhật destination trên Pinecone - xóa chunks cũ và tạo chunks mới
-    Xử lý cả trường hợp thay đổi namespace (cityId)
-    """
     try:
 
         
@@ -134,7 +130,6 @@ def update_destination(payload: UpdatePayload):
         try:
             stats = index.describe_index_stats()
             all_namespaces = list(stats.get('namespaces', {}).keys())
-            print(f"[UPDATE] Searching in namespaces: {all_namespaces}")
             
             # Tìm và xóa chunks cũ trong tất cả namespaces
             for namespace in all_namespaces:
@@ -143,36 +138,29 @@ def update_destination(payload: UpdatePayload):
                     if ids_to_delete:
                         index.delete(namespace=namespace, ids=ids_to_delete)
                         deleted_count += len(ids_to_delete)
-                        print(f"[UPDATE] Deleted {len(ids_to_delete)} chunks from namespace {namespace}")
                 except Exception as ns_error:
-                    print(f"[UPDATE] Error checking namespace {namespace}: {ns_error}")
                     continue
                     
         except Exception as stats_error:
-            print(f"[UPDATE] Could not get index stats, trying current namespace only: {stats_error}")
             # Fallback: chỉ xóa từ namespace hiện tại
             try:
                 ids_to_delete = list(index.list(prefix=payload.destinationId, namespace=payload.cityId))
                 if ids_to_delete:
                     index.delete(namespace=payload.cityId, ids=ids_to_delete)
                     deleted_count = len(ids_to_delete)
-                    print(f"[UPDATE] Deleted {deleted_count} chunks from current namespace {payload.cityId}")
             except Exception as fallback_error:
-                print(f"[UPDATE] Fallback delete also failed: {fallback_error}")
+                pass
         
         # Bước 2: Parse JSON data từ backend (giống như ingest)
         import json
         try:
             destination_data = json.loads(payload.info)
-            print(f"[UPDATE] Parsed destination data keys: {list(destination_data.keys())}")
+            print(f"[UPDATE] 📍 Đang update địa điểm: {payload.name}")
         except Exception as parse_error:
-            print(f"[UPDATE ERROR] JSON parse failed: {parse_error}")
-            # Fallback nếu vẫn là string cũ
             destination_data = {"description": payload.info}
         
         # Bước 3: Tạo semantic chunks mới với 4 chunks
         chunks = create_semantic_chunks(payload.name, destination_data, payload.destinationId, payload.slug)
-        print(f"[UPDATE] Created {len(chunks)} chunks")
 
         # Bước 4: Tạo records mới với metadata đầy đủ
         records = [
@@ -195,17 +183,18 @@ def update_destination(payload: UpdatePayload):
             batch = records[i:i + batch_size]
             index.upsert_records(payload.cityId, batch)
 
-        print(f"[UPDATE] Created {len(records)} new chunks for destination {payload.destinationId} in namespace {payload.cityId}")
+        print(f"[UPDATE] ✅ UPDATE THÀNH CÔNG: {payload.name}")
         
         return {
             "status": "updated", 
             "chunks_deleted": deleted_count,
             "chunks_created": len(records),
-            "new_namespace": payload.cityId
+            "new_namespace": payload.cityId,
+            "destination_name": payload.name
         }
         
     except Exception as e:
-        print(f"[UPDATE ERROR] {str(e)}")
+        print(f"[UPDATE ERROR] ❌ UPDATE THẤT BẠI cho {payload.name}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Update failed: {str(e)}")
 
 @app.post("/v1/question")
@@ -305,8 +294,8 @@ def create_semantic_chunks(name: str, data: dict, destination_id: str, slug: str
     """
     chunks = []
     
-    # 1. Tổng quan - Thông tin tổng quan (không lặp tên)
-    overview_content = ""
+    # 1. Tổng quan - Thông tin tổng quan (bắt đầu bằng tên địa điểm)
+    overview_content = f"**{name}**\n\n"
     
     # Mô tả chính
     if data.get('description'):
@@ -316,17 +305,13 @@ def create_semantic_chunks(name: str, data: dict, destination_id: str, slug: str
     if data.get('highlight'):
         overview_content += f"**Điểm nổi bật:** {data['highlight']}\n\n"
     
-    # Loại hình du lịch
-    if data.get('cultureType'):
-        overview_content += f"**Loại hình:** {data['cultureType']}\n\n"
-    
     chunks.append({
         'type': 'tong-quan',
         'content': overview_content.strip()
     })
     
-    # 2. Trải nghiệm - Trải nghiệm và hoạt động (không lặp tên)
-    experience_content = ""
+    # 2. Trải nghiệm - Trải nghiệm và hoạt động (bắt đầu bằng tên địa điểm)
+    experience_content = f"**{name}**\n\n"
     
     # Dịch vụ
     if data.get('services'):
@@ -345,8 +330,8 @@ def create_semantic_chunks(name: str, data: dict, destination_id: str, slug: str
         'content': experience_content.strip()
     })
     
-    # 3. Thực tế - Thông tin thực tế (không lặp tên)
-    practical_content = ""
+    # 3. Thực tế - Thông tin thực tế (bắt đầu bằng tên địa điểm)
+    practical_content = f"**{name}**\n\n"
     
     # Giờ mở cửa
     if data.get('openHour'):
@@ -365,20 +350,17 @@ def create_semantic_chunks(name: str, data: dict, destination_id: str, slug: str
         'content': practical_content.strip()
     })
     
-    # 4. Danh mục - Tags và từ khóa tìm kiếm
-    tags_content = ""
+    # 4. Danh mục - Tags và từ khóa tìm kiếm (bắt đầu bằng tên địa điểm)
+    tags_content = f"**{name}**\n\n"
     
     # Tags chính
     if data.get('tags'):
         tags_content += f"**Danh mục:** {data['tags']}\n\n"
     
-    # Bổ sung thông tin về loại hình để tăng khả năng tìm kiếm
+    # Loại hình du lịch - chuyển từ chunk tổng quan
     if data.get('cultureType'):
-        tags_content += f"**Văn hóa:** {data['cultureType']}\n\n"
-    
-    # Tên địa điểm để tăng độ chính xác tìm kiếm
-    tags_content += f"**Tên địa điểm:** {name}\n\n"
-    
+        tags_content += f"**Loại hình:** {data['cultureType']}\n\n"
+
     chunks.append({
         'type': 'danh-muc',
         'content': tags_content.strip()
