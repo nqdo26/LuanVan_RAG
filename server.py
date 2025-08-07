@@ -523,6 +523,7 @@ def create_chat_completion(payload: ChatCompletionPayload):
     user_prompt = (
         f"\"Câu hỏi của người dùng: {payload.messages[-1].content}\"\n"
         "\"Dựa trên các thông tin tham khảo từ hệ thống, hãy trả lời đầy đủ và thân thiện.\"\n"
+        "\"""QUAN TRỌNG: Hãy kiểm tra thời gian mở cửa của địa điểm trước khi trả lời, nếu địa điểm đã đỏng cửa thì loại địa điểm đó ra khỏi câu trả lời.\"\n"
         f"\"Các địa điểm có sẵn: {', '.join(destination_names)}\"\n"
         "\"Thông tin chi tiết:\" \n"
         f"{reference_texts}\n\n"
