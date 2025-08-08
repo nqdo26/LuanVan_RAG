@@ -459,23 +459,23 @@ def create_chat_completion(payload: ChatCompletionPayload):
         user_question = messages_for_api[-1]["content"] if messages_for_api else ""
 
         system_prompt = (
-            "Bạn là **Gobot**, trợ lý du lịch thông minh và thân thiện của website **GoOhNo**, nền tảng hỗ trợ lên kế hoạch du lịch Việt Nam.\n"
-            "Bạn đóng vai trò như một **hướng dẫn viên bản địa**, trò chuyện tự nhiên và gần gũi để giúp người dùng khám phá Việt Nam dễ dàng.\n"
-            "Quy tắc quan trọng:\n"
-            "1. Chỉ tư vấn về các địa điểm, hoạt động và trải nghiệm du lịch tại Việt Nam.\n"
-            "2. Trả lời bằng **tiếng Việt**, giọng điệu thân thiện, gần gũi, dễ hiểu.\n"
-            "3. Trình bày bằng **Markdown** với tiêu đề, danh sách và emoji minh họa (📍🏖️☕🍜🏯).\n"
-            "4. Nếu không chắc chắn, hãy nói: *Tôi không chắc về điều này.*\n"
-            "5. Cuối câu trả lời, thêm **lời khuyên hữu ích cho du khách** và nhắc nhẹ rằng họ có thể tìm hiểu thêm trên GoOhNo.\n"
+            "Bạn là **Gobot**, trợ lý du lịch thân thiện của **GoOhNo** 🇻🇳.\n"
+            "Tính cách: Vui vẻ, gần gũi, trả lời ngắn gọn và hữu ích.\n"
+            "Quy tắc:\n"
+            "1. Chỉ tư vấn về du lịch Việt Nam.\n"
+            "2. Trả lời ngắn gọn, thân thiện bằng tiếng Việt.\n"
+            "3. Dùng emoji để sinh động (📍🏖️☕🍜🏯).\n"
+            "4. Khuyến khích người dùng chọn thành phố để có gợi ý chính xác hơn.\n"
+            "5. Nếu không chắc: *Mình không chắc về điều này nhé.*\n"
         )
 
 
         user_prompt = (
-            f"\"Câu hỏi của người dùng: {user_question}\"\n"
-            "\"Hãy trả lời dựa trên kiến thức nền về du lịch Việt Nam.\"\n"
-            "\"Đưa ra các gợi ý chi tiết, dễ đọc, kèm emoji minh họa.\"\n"
-            "\"Chia nhỏ nội dung thành mục hoặc danh sách Markdown.\"\n"
-            "\"Kết thúc bằng lời khuyên hữu ích và thân thiện.\"\n"
+            f"\"Câu hỏi: {user_question}\"\n"
+            "\"Trả lời ngắn gọn và thân thiện về du lịch Việt Nam.\"\n"
+            "\"Dùng 4-5 câu ngắn với emoji. Không cần quá chi tiết.\"\n"
+            "\"Khuyến khích chọn thành phố cụ thể để có gợi ý chính xác hơn từ hệ thống.\"\n"
+            "\"Kết thúc bằng câu chúc vui vẻ.\"\n"
         )
 
         messages = [
@@ -485,8 +485,8 @@ def create_chat_completion(payload: ChatCompletionPayload):
         ]
 
         fallback_models = [
-            payload.model or "llama-3.3-70b-versatile",
-            "llama-3.1-70b-versatile",
+            payload.model or "openai/gpt-oss-120b",
+            "llama-3.3-70b-versatile",
             "mixtral-8x7b-32768"
         ]
 
@@ -501,7 +501,7 @@ def create_chat_completion(payload: ChatCompletionPayload):
                     model=model,
                     temperature=0.4,
                     top_p=0.9,
-                    max_completion_tokens=1024,
+                    max_completion_tokens=512,  
                 )
                 response_dict = chat_completion.model_dump()
                 print(f"[SUCCESS] Model {model} worked!")
@@ -583,45 +583,32 @@ def create_chat_completion(payload: ChatCompletionPayload):
 
     system_prompt = (
         "Bạn là **Gobot**, trợ lý du lịch Việt Nam thân thiện và hiểu biết 🇻🇳.\n"
+        "\"- Trả lời tự nhiên như một người hướng dẫn viên du lịch, không phải công cụ tìm kiếm\"\n"
         "Quy tắc:\n"
-        "1. Chỉ tư vấn các địa điểm và trải nghiệm tại Việt Nam.\n"
-        "2. Trả lời bằng tiếng Việt, giọng điệu tự nhiên, dễ gần, như đang trò chuyện.\n"
-        "3. Trình bày bằng **Markdown** với tiêu đề, danh sách và emoji (📍☕🏖️🍜🏯).\n"
-        "4. **QUAN TRỌNG**: Luôn sử dụng TÊN CHÍNH XÁC của địa điểm từ dữ liệu được cung cấp.\n"
-        "5. **PHÂN TÍCH TAGS**: Đọc kỹ trường 'Danh mục' và 'Loại hình' của mỗi địa điểm để đánh giá mức độ phù hợp với yêu cầu.\n"
-        "6. Nếu không chắc chắn, hãy nói: *Tôi không chắc về điều này.*\n"
-        "7. Kết thúc câu trả lời bằng **lời khuyên hữu ích cho khách du lịch**.\n"
+        "Trình bày bằng **Markdown** với tiêu đề, danh sách và emoji  (📍☕🏖️🍜🏯).\n"
     )
-
     user_prompt = (
         f"\"Câu hỏi của người dùng: {payload.messages[-1].content}\"\n"
-        "\"Dựa trên các thông tin tham khảo từ hệ thống, hãy trả lời đầy đủ và thân thiện.\"\n"
-        "\n**HƯỚNG DẪN PHÂN TÍCH QUAN TRỌNG:**\n"
+        "\"Dựa trên các thông tin tham khảo từ hệ thống, hãy trả lời đầy đủ, thân thiện và như 1 người hướng dẫn viên du lịch.\"\n"
+        "\n**HƯỚNG DẪN PHÂN TÍCH:**\n"
         "1. **Đọc kỹ tags và danh mục**: Xem xét trường 'Danh mục' và 'Loại hình' của mỗi địa điểm\n"
-        "2. **Đánh giá độ phù hợp**: Chỉ đề xuất địa điểm có tags/danh mục phù hợp với yêu cầu\n"
-        "3. **Ưu tiên theo mức độ phù hợp**: Sắp xếp địa điểm theo độ phù hợp từ cao đến thấp\n"
-        "4. **Giải thích lý do**: Nêu rõ tại sao địa điểm phù hợp dựa trên tags/danh mục\n"
+        "2. Chỉ đề xuất địa điểm có tags/danh mục phù hợp với yêu cầu\n"
+
         "\n**VÍ DỤ PHÂN TÍCH:**\n"
-        "- Nếu user hỏi về 'quán cà phê': Chỉ chọn địa điểm có tag 'cà phê', 'coffee', 'đồ uống'\n"
+        "- Nếu user hỏi về 'quán cà phê': Chỉ chọn địa điểm có tag 'quán cà phê'\n"
+        "- Nếu user hỏi về 'quán cà phê học tập, làm việc': Chọn địa điểm có tag 'cà phê', 'học tập - làm việc'\n"
         "- Nếu user hỏi về 'ăn uống': Chọn địa điểm có tag 'ẩm thực', 'nhà hàng', 'món ăn'\n"
-        "- Nếu user hỏi về 'du lịch văn hóa': Chọn địa điểm có tag 'văn hóa', 'lịch sử', 'truyền thống'\n"
+        "- Nếu user hỏi về 'địa điểm nổi bậc và đặc trưng': Chọn địa điểm có tag 'văn hóa - lịch sử', 'đặc trưng', 'nổi bậc'\n"
         "\n"
-        "\"""QUAN TRỌNG: Hãy kiểm tra thời gian mở cửa của địa điểm trước khi trả lời, nếu địa điểm đã đóng cửa thì loại địa điểm đó ra khỏi câu trả lời.\"\n"
         f"\"Các địa điểm có sẵn: {', '.join(destination_names)}\"\n"
         "\"Thông tin chi tiết:\" \n"
         f"{reference_texts}\n\n"
-        "\"QUAN TRỌNG: \"\n"
-        "\"- Hãy sử dụng CHÍNH XÁC tên địa điểm từ danh sách trên.\"\n"
-        "\"- CHỈ đưa vào câu trả lời những địa điểm có tags/danh mục PHÙ HỢP với yêu cầu của user.\"\n"
-        "\"- Trình bày dưới dạng danh sách Markdown với emoji, có tên địa điểm rõ ràng.\"\n"
-        "\"- Giải thích ngắn gọn tại sao địa điểm phù hợp (dựa trên tags/danh mục).\"\n"
-        "\"- Kết thúc bằng một lời khuyên hữu ích và thân thiện.\"\n"
-        "\n**QUY TRÌNH PHÂN TÍCH TAGS:**\n"
-        "\"1. Đọc từng địa điểm và tìm phần có emoji 🏷️ DANH MỤC/TAGS và 🎯 LOẠI HÌNH DU LỊCH\"\n"
-        "\"2. So sánh tags với từ khóa trong câu hỏi của user (ví dụ: 'cà phê' khớp với tag 'coffee')\"\n"
-        "\"3. Chỉ đưa vào câu trả lời những địa điểm có tags phù hợp >= 70%\"\n"
-        "\"4. Sắp xếp theo mức độ phù hợp: Rất phù hợp > Phù hợp > Có thể phù hợp\"\n"
-        "\"5. Trong câu trả lời, ghi rõ lý do chọn dựa trên tags (ví dụ: 'phù hợp với nhu cầu tìm cà phê')\"\n"
+        "\"YÊU CẦU FORMAT:\"\n"
+        "\"- Chọn và  CHÍNH XÁC các địa điểm có tags/danh mục PHÙ HỢP với câu hỏi\"\n"
+        "\"- Format: ## Tiêu đề, - **Tên địa điểm** 📍 Mô tả tự nhiên, Giờ mở cửa (kiểm tra thật kĩ),\"\n"
+        "\"- ❌ CẤM TUYỆT ĐỐI: Ký tự | (table/bảng)\"\n"
+        "\"- ✅ CHỈ DÙNG: Danh sách markdown với emoji\"\n"
+        "\"- Kết thúc: Lời khuyên hữu ích + Câu chúc thân thiện 🌟\"\n"
     )
 
     messages = [
@@ -631,9 +618,8 @@ def create_chat_completion(payload: ChatCompletionPayload):
     ]
 
     fallback_models = [
-        payload.model or "deepseek-r1-distill-llama-70b",
+        payload.model or "openai/gpt-oss-120b",
         "llama-3.3-70b-versatile",
-        "llama-3.1-70b-versatile",
         "mixtral-8x7b-32768"
     ]
 
@@ -648,7 +634,7 @@ def create_chat_completion(payload: ChatCompletionPayload):
                 model=model,
                 temperature=0.2,
                 top_p=0.85,
-                max_completion_tokens=800,
+                max_completion_tokens=1500,  # Tăng từ 800 lên 1500
             )
             response_dict = chat_completion.model_dump()
             print(f"[SUCCESS] Model {model} worked!")

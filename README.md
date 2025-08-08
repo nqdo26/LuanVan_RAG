@@ -163,7 +163,7 @@ POST /v1/question
     "id": "string",
     "object": "chat.completion",
     "created": 1234567890,
-    "model": "deepseek-r1-distill-llama-70b",
+    "model": "openai/gpt-oss-120b",
     "choices": [
         {
             "index": 0,
@@ -228,7 +228,7 @@ POST /v1/chat/completions
             "content": "string"
         }
     ],
-    "model": "string (optional, default: deepseek-r1-distill-llama-70b)",
+    "model": "string (optional, default: openai/gpt-oss-120b)",
     "userId": "string",
     "isUseKnowledge": "boolean (optional, default: false)",
     "courseId": "string (optional)",
