@@ -353,13 +353,17 @@ def create_semantic_chunks(name: str, data: dict, destination_id: str, slug: str
     # 4. Danh mục - Tags và từ khóa tìm kiếm (bắt đầu bằng tên địa điểm)
     tags_content = f"**{name}**\n\n"
     
-    # Tags chính
+    # Tags chính - làm nổi bật để AI dễ nhận biết
     if data.get('tags'):
-        tags_content += f"**Danh mục:** {data['tags']}\n\n"
+        tags_content += f"🏷️ **DANH MỤC/TAGS:** {data['tags']}\n\n"
     
     # Loại hình du lịch - chuyển từ chunk tổng quan
     if data.get('cultureType'):
-        tags_content += f"**Loại hình:** {data['cultureType']}\n\n"
+        tags_content += f"🎯 **LOẠI HÌNH DU LỊCH:** {data['cultureType']}\n\n"
+    
+    # Thêm thông tin phân loại để AI dễ phân tích
+    if data.get('type'):
+        tags_content += f"📂 **PHÂN LOẠI:** {data['type']}\n\n"
 
     chunks.append({
         'type': 'danh-muc',
@@ -367,6 +371,74 @@ def create_semantic_chunks(name: str, data: dict, destination_id: str, slug: str
     })
     
     return chunks
+
+def filter_destinations_by_content(content: str, hits: list) -> list:
+    """
+    Lọc destinations dựa trên việc tên địa điểm có xuất hiện trong nội dung câu trả lời hay không
+    Sử dụng multiple matching strategies để tăng độ chính xác
+    """
+    if not content or not hits:
+        return hits
+    
+    # Chuẩn hóa content để so sánh
+    content_normalized = clean_text(content.lower())
+    
+    # Tạo set để tránh trùng lặp destinations
+    mentioned_destination_ids = set()
+    filtered_hits = []
+    
+    for hit in hits:
+        dest_name = hit["fields"].get("name", "").strip()
+        dest_id = hit["fields"].get("destinationId")
+        
+        if not dest_name or not dest_id:
+            continue
+            
+        # Chuẩn hóa tên địa điểm để so sánh
+        dest_name_normalized = clean_text(dest_name.lower())
+        
+        # Strategy 1: Exact match
+        is_mentioned = dest_name_normalized in content_normalized
+        
+        # Strategy 2: Partial word match (tránh false positive)
+        if not is_mentioned:
+            # Tách từ và kiểm tra từng từ quan trọng
+            dest_words = [word for word in dest_name_normalized.split() if len(word) > 2]
+            if dest_words:
+                # Phải có ít nhất 70% từ xuất hiện trong content
+                matched_words = sum(1 for word in dest_words if word in content_normalized)
+                word_match_ratio = matched_words / len(dest_words)
+                is_mentioned = word_match_ratio >= 0.7
+        
+        # Strategy 3: Common abbreviations và alternative names
+        if not is_mentioned:
+            # Kiểm tra các pattern phổ biến
+            name_patterns = [
+                dest_name_normalized.replace(" ", ""),  # Loại bỏ khoảng trắng
+                dest_name_normalized.replace("quán", "").strip(),  # Loại bỏ "quán"
+                dest_name_normalized.replace("nhà hàng", "").strip(),  # Loại bỏ "nhà hàng"
+                dest_name_normalized.replace("khách sạn", "").strip(),  # Loại bỏ "khách sạn"
+                dest_name_normalized.replace("cà phê", "coffee").strip(),  # Thay thế cà phê
+            ]
+            
+            for pattern in name_patterns:
+                if pattern and len(pattern) > 2 and pattern in content_normalized:
+                    is_mentioned = True
+                    break
+        
+        if is_mentioned:
+            # Chỉ thêm nếu chưa có destination này
+            if dest_id not in mentioned_destination_ids:
+                mentioned_destination_ids.add(dest_id)
+                filtered_hits.append(hit)
+                print(f"[FILTER] ✅ Giữ lại: {dest_name} (xuất hiện trong câu trả lời)")
+            else:
+                print(f"[FILTER] ⚠️ Bỏ qua duplicate: {dest_name}")
+        else:
+            print(f"[FILTER] ❌ Loại bỏ: {dest_name} (không xuất hiện trong câu trả lời)")
+    
+    print(f"[FILTER] 📊 Kết quả: {len(filtered_hits)}/{len(hits)} destinations được giữ lại")
+    return filtered_hits
 
 @app.post("/v1/chat/completions")
 def create_chat_completion(payload: ChatCompletionPayload):
@@ -516,20 +588,40 @@ def create_chat_completion(payload: ChatCompletionPayload):
         "2. Trả lời bằng tiếng Việt, giọng điệu tự nhiên, dễ gần, như đang trò chuyện.\n"
         "3. Trình bày bằng **Markdown** với tiêu đề, danh sách và emoji (📍☕🏖️🍜🏯).\n"
         "4. **QUAN TRỌNG**: Luôn sử dụng TÊN CHÍNH XÁC của địa điểm từ dữ liệu được cung cấp.\n"
-        "5. Nếu không chắc chắn, hãy nói: *Tôi không chắc về điều này.*\n"
-        "6. Kết thúc câu trả lời bằng **lời khuyên hữu ích cho khách du lịch**.\n"
+        "5. **PHÂN TÍCH TAGS**: Đọc kỹ trường 'Danh mục' và 'Loại hình' của mỗi địa điểm để đánh giá mức độ phù hợp với yêu cầu.\n"
+        "6. Nếu không chắc chắn, hãy nói: *Tôi không chắc về điều này.*\n"
+        "7. Kết thúc câu trả lời bằng **lời khuyên hữu ích cho khách du lịch**.\n"
     )
 
     user_prompt = (
         f"\"Câu hỏi của người dùng: {payload.messages[-1].content}\"\n"
         "\"Dựa trên các thông tin tham khảo từ hệ thống, hãy trả lời đầy đủ và thân thiện.\"\n"
-        "\"""QUAN TRỌNG: Hãy kiểm tra thời gian mở cửa của địa điểm trước khi trả lời, nếu địa điểm đã đỏng cửa thì loại địa điểm đó ra khỏi câu trả lời.\"\n"
+        "\n**HƯỚNG DẪN PHÂN TÍCH QUAN TRỌNG:**\n"
+        "1. **Đọc kỹ tags và danh mục**: Xem xét trường 'Danh mục' và 'Loại hình' của mỗi địa điểm\n"
+        "2. **Đánh giá độ phù hợp**: Chỉ đề xuất địa điểm có tags/danh mục phù hợp với yêu cầu\n"
+        "3. **Ưu tiên theo mức độ phù hợp**: Sắp xếp địa điểm theo độ phù hợp từ cao đến thấp\n"
+        "4. **Giải thích lý do**: Nêu rõ tại sao địa điểm phù hợp dựa trên tags/danh mục\n"
+        "\n**VÍ DỤ PHÂN TÍCH:**\n"
+        "- Nếu user hỏi về 'quán cà phê': Chỉ chọn địa điểm có tag 'cà phê', 'coffee', 'đồ uống'\n"
+        "- Nếu user hỏi về 'ăn uống': Chọn địa điểm có tag 'ẩm thực', 'nhà hàng', 'món ăn'\n"
+        "- Nếu user hỏi về 'du lịch văn hóa': Chọn địa điểm có tag 'văn hóa', 'lịch sử', 'truyền thống'\n"
+        "\n"
+        "\"""QUAN TRỌNG: Hãy kiểm tra thời gian mở cửa của địa điểm trước khi trả lời, nếu địa điểm đã đóng cửa thì loại địa điểm đó ra khỏi câu trả lời.\"\n"
         f"\"Các địa điểm có sẵn: {', '.join(destination_names)}\"\n"
         "\"Thông tin chi tiết:\" \n"
         f"{reference_texts}\n\n"
-        "\"QUAN TRỌNG: Hãy sử dụng CHÍNH XÁC tên địa điểm từ danh sách trên.\"\n"
-        "\"Trình bày dưới dạng danh sách Markdown với emoji, có tên địa điểm rõ ràng.\"\n"
-        "\"Kết thúc bằng một lời khuyên hữu ích và thân thiện.\"\n"
+        "\"QUAN TRỌNG: \"\n"
+        "\"- Hãy sử dụng CHÍNH XÁC tên địa điểm từ danh sách trên.\"\n"
+        "\"- CHỈ đưa vào câu trả lời những địa điểm có tags/danh mục PHÙ HỢP với yêu cầu của user.\"\n"
+        "\"- Trình bày dưới dạng danh sách Markdown với emoji, có tên địa điểm rõ ràng.\"\n"
+        "\"- Giải thích ngắn gọn tại sao địa điểm phù hợp (dựa trên tags/danh mục).\"\n"
+        "\"- Kết thúc bằng một lời khuyên hữu ích và thân thiện.\"\n"
+        "\n**QUY TRÌNH PHÂN TÍCH TAGS:**\n"
+        "\"1. Đọc từng địa điểm và tìm phần có emoji 🏷️ DANH MỤC/TAGS và 🎯 LOẠI HÌNH DU LỊCH\"\n"
+        "\"2. So sánh tags với từ khóa trong câu hỏi của user (ví dụ: 'cà phê' khớp với tag 'coffee')\"\n"
+        "\"3. Chỉ đưa vào câu trả lời những địa điểm có tags phù hợp >= 70%\"\n"
+        "\"4. Sắp xếp theo mức độ phù hợp: Rất phù hợp > Phù hợp > Có thể phù hợp\"\n"
+        "\"5. Trong câu trả lời, ghi rõ lý do chọn dựa trên tags (ví dụ: 'phù hợp với nhu cầu tìm cà phê')\"\n"
     )
 
     messages = [
@@ -570,12 +662,18 @@ def create_chat_completion(payload: ChatCompletionPayload):
     if response_dict is None:
         raise HTTPException(status_code=500, detail=f"All models failed. Last error: {str(last_error)}")
 
-    # Làm sạch output và trả về kèm danh sách điểm đến
+    # Làm sạch output và lọc destinations dựa trên nội dung câu trả lời
     if response_dict.get("choices") and response_dict["choices"][-1].get("message"):
         content = response_dict["choices"][-1]["message"]["content"]
         import re
         content = re.sub(r'\n\s*\n\s*\n', '\n\n', content).strip()
         response_dict["choices"][-1]["message"]["content"] = content
+        
+        # Lọc destinations chỉ giữ lại những địa điểm được nhắc đến trong câu trả lời
+        filtered_hits = filter_destinations_by_content(content, hits)
+    else:
+        # Fallback nếu không có content
+        filtered_hits = hits
 
     response_dict["choices"][-1]["message"]["destinations"] = [
         {
@@ -586,7 +684,7 @@ def create_chat_completion(payload: ChatCompletionPayload):
             "name": hit["fields"].get("name"),
             "chunk_type": hit["fields"].get("chunk_type", "unknown"),
             "score": hit.get("_score", 0),
-        } for hit in hits
+        } for hit in filtered_hits
     ]
 
     return response_dict
