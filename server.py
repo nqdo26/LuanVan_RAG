@@ -596,9 +596,10 @@ def create_chat_completion(payload: ChatCompletionPayload):
 
         "\n**VÍ DỤ PHÂN TÍCH:**\n"
         "- Nếu user hỏi về 'quán cà phê': Chỉ chọn địa điểm có tag 'quán cà phê'\n"
-        "- Nếu user hỏi về 'quán cà phê học tập, làm việc': Chọn địa điểm có tag 'cà phê', 'học tập - làm việc'\n"
+        "- Nếu user hỏi về 'học tập, làm việc': Chọn địa điểm có tag 'cà phê', 'học tập - làm việc'\n"
         "- Nếu user hỏi về 'ăn uống': Chọn địa điểm có tag 'ẩm thực', 'nhà hàng', 'món ăn'\n"
         "- Nếu user hỏi về 'địa điểm nổi bậc và đặc trưng': Chọn địa điểm có tag 'văn hóa - lịch sử', 'đặc trưng', 'nổi bậc'\n"
+        "- Nếu user hỏi về 'ẩm thực địa phương': Chọn các nhà hàng hoặc quán ăn có tag 'Ẩm thực địa phương'\n"
         "\n"
         f"\"Các địa điểm có sẵn: {', '.join(destination_names)}\"\n"
         "\"Thông tin chi tiết:\" \n"
